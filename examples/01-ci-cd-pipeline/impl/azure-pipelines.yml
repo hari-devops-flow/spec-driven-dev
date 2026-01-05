@@ -1,0 +1,75 @@
+# impl/azure-pipelines.yml
+# GENERATED FROM pipeline.spec.yaml
+# DO NOT EDIT MANUALLY. UPDATE THE SPEC INSTEAD.
+
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+      - feature/*
+
+variables:
+  - name: DOCKER_REGISTRY
+    value: $(DOCKER_REGISTRY) # Expected from library
+  - name: ENVIRONMENT
+    value: "testing"
+
+stages:
+  - stage: lint_and_test
+    displayName: "Code Quality"
+    jobs:
+      - job: lint
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - script: |
+              docker run -v $(pwd):/app -w /app golangci/golangci-lint:v1.54 golangci-lint run
+            displayName: "Run Lint"
+
+      - job: unit_test
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - script: go test -v ./...
+            displayName: "Run Unit Tests"
+          - task: PublishCodeCoverageResults@1
+            inputs:
+              codeCoverageTool: 'Cobertura'
+              summaryFileLocation: '$(System.DefaultWorkingDirectory)/coverage.out'
+
+  - stage: build_push
+    displayName: "Build Container"
+    dependsOn: lint_and_test
+    jobs:
+      - job: docker_build
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: Docker@2
+            inputs:
+              command: buildAndPush
+              repository: $(DOCKER_REGISTRY)/backend-service
+              dockerfile: Dockerfile
+              tags: |
+                latest
+                $(Build.BuildId)
+
+  - stage: deploy_staging
+    displayName: "Deploy to Staging"
+    dependsOn: build_push
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: helm_upgrade
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: HelmDeploy@0
+            inputs:
+              command: upgrade
+              chartPath: ./charts/service
+              releaseName: backend-service-staging

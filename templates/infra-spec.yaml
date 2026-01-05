@@ -1,0 +1,32 @@
+# infrastructure.spec.yaml
+apiVersion: v1
+kind: InfrastructureSpec
+metadata:
+  name: "my-cloud-resource"
+  env: "production"
+
+resources:
+  # Define abstract resources, not provider-specific implementation details usually.
+  # Although for strict SDD, being specific is okay if the spec is the source of truth.
+  
+  - type: database
+    id: main-db
+    engine: postgres
+    version: "15"
+    size: "db.t3.medium" # Abstract size, or specific instance type
+    storage: 100GB
+    backup:
+      retention_days: 7
+      geo_redundant: false
+
+  - type: message_queue
+    id: event-bus
+    engine: sqs # or kafka
+    fifo: true
+    encryption: true
+
+constraints:
+  region: "us-east-1"
+  tags:
+    Project: "SDD-Demo"
+    CostCenter: "1234"

@@ -1,0 +1,57 @@
+# pipeline.spec.yaml
+# START OF TRUTH
+meta:
+  name: "backend-service-pipeline"
+  version: "1.0.0"
+  owner: "platform-team"
+  description: "Standard delivery pipeline for Go microservices"
+
+# 1. Triggers: When does this run?
+triggers:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main", "feature/*"]
+
+# 2. Variables: What data does it need?
+variables:
+  - name: "DOCKER_REGISTRY"
+    required: true
+    description: "URL of the container registry"
+  - name: "ENVIRONMENT"
+    default: "testing"
+
+# 3. Stages: High-level abstract phases
+stages:
+  - id: "lint_and_test"
+    name: "Code Quality"
+    jobs:
+      - name: "lint"
+        image: "golangci/golangci-lint:v1.54"
+        command: "golangci-lint run"
+      - name: "unit_test"
+        image: "golang:1.21"
+        command: "go test -v ./..."
+        artifacts:
+          - path: "coverage.out"
+            type: "coverage"
+
+  - id: "build_push"
+    name: "Build Container"
+    needs: ["lint_and_test"]
+    jobs:
+      - name: "docker_build"
+        type: "container_build" # This is a custom type acting as a contract
+        context: "."
+        dockerfile: "Dockerfile"
+        tags: ["latest", "${BUILD_ID}"]
+
+  - id: "deploy_staging"
+    name: "Deploy to Staging"
+    needs: ["build_push"]
+    condition: "branch == 'main'"
+    jobs:
+      - name: "helm_upgrade"
+        type: "deployment"
+        target: "k8s-staging"
+        chart: "./charts/service"
