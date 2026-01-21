@@ -1,0 +1,12 @@
+version: 1
+
+repositories:
+  - path: "/home/hari/productivity/spec-driven-dev"
+    branch: "main" 
+    commit_prefix: "[SDD-Agent]"
+    auto_push: false
+
+settings:
+  dry_run_default: true
+  max_commits_per_run: 1
+  log_file: "/home/hari/.gemini/git-agent.log"

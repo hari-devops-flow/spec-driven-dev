@@ -1,0 +1,92 @@
+spec_version: "1.0"
+agent:
+  name: "GitAutoCommitter"
+  description: "A secure, automated agent that tracks changes, commits, and pushes to a remote repository daily."
+  version: "0.1.0"
+
+inputs:
+  config:
+    type: "file"
+    path: "git-agent.config.yaml"
+    description: "Configuration file defining allowed repos and behavior."
+  cli_args:
+    dry_run:
+      type: "boolean"
+      default: true
+      description: "If true, simulate actions without executing git writes."
+    verbose:
+      type: "boolean"
+      default: false
+      description: "Enable debug logging."
+
+control_loop:
+  steps:
+    - id: "load_config"
+      action: "Load and validate 'git-agent.config.yaml'"
+      failure_handling: "ABORT"
+    
+    - id: "validate_repo"
+      action: "Check if target_repo is in allowed_paths and is a valid git repo"
+      failure_handling: "ABORT"
+
+    - id: "observe_state"
+      tool: "git_status"
+      output: "repo_status"
+      description: "Capture modified files, staged changes, and current branch"
+
+    - id: "decide_strategy"
+      logic: |
+        IF repo_status is CLEAN:
+          RETURN "NO_ACTION"
+        IF repo_status has CONFLICTS:
+          RETURN "ABORT_CONFLICT"
+        IF repo_status has IGNORED_FILES_ONLY:
+          RETURN "NO_ACTION"
+        ELSE:
+          RETURN "PLAN_COMMIT"
+      
+    - id: "generate_message"
+      condition: "strategy == PLAN_COMMIT"
+      tool: "generate_commit_message"
+      input: "repo_status.diff"
+      output: "commit_message"
+      
+    - id: "execute_commit"
+      condition: "strategy == PLAN_COMMIT"
+      tool: "git_commit"
+      input: "commit_message"
+      safety: "Require dry_run == false"
+
+    - id: "push_changes"
+      condition: "commit_successful == true"
+      tool: "git_push"
+      safety: "Require dry_run == false"
+
+tools:
+  - name: "git_status"
+    command: "git status --porcelain -b"
+    read_only: true
+    safe: true
+
+  - name: "git_commit"
+    command: "git commit -am '{message}'"
+    read_only: false
+    safe: false
+
+  - name: "git_push"
+    command: "git push origin {branch}"
+    read_only: false
+    safe: false
+
+security:
+  boundaries:
+    - "Agent must ONLY operate within directories listed in 'allowed_paths'"
+    - "Agent must NEVER 'force push'"
+    - "Agent must STOP if git user.name or user.email is not configured"
+  authentication:
+    - "Use existing system credential helper or SSH keys"
+    - "No credentials passed in args or config"
+
+constraints:
+  schedule: "Daily"
+  idempotency: "If run twice, second run should detect clean state and exit."
